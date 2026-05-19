@@ -4,7 +4,8 @@ services:
     image: brick-inventory-label-maker:latest
     container_name: brick-labels
     ports:
-      - "127.0.0.1:8080:8080"
+      # Host port set by LABELS_PORT env (run_podman.sh picks a random 8000-9999 free port).
+      - "127.0.0.1:${LABELS_PORT:-8080}:8080"
     environment:
       BRICKLINK_API_FILE: /etc/brick-labels/bricklink_api_private.yml
       BRICK_CACHE_DIR: /app/cache

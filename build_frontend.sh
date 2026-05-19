@@ -6,4 +6,3 @@ if [ ! -d node_modules ]; then
 fi
 npm run typecheck
 npm run build
-echo "frontend build OK -> frontend/dist/"

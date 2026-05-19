@@ -20,6 +20,10 @@
 
 - Rewrite `backend/adapters/image_pipeline.py` to call `libbrick.image_cache.get_cached_image()` instead of reimplementing HTTP fetch and caching from scratch. Signature now requires `kind` parameter ('minifig' or 'set'). Adds `time.sleep(random.random())` before fetch per repo style. L* dark-image classification preserved.
 - Update `source_me.sh` to prepend `vendor/` to `PYTHONPATH` so `import libbrick.image_cache` resolves correctly from absolute imports.
+- `run_local.sh` and new `run_podman.sh` now pick a random free TCP port in 8000-9999 via `lsof` probing instead of hard-coding 8080. On macOS (`uname -s == Darwin`), both scripts auto-open the default browser at `http://127.0.0.1:<port>` once the port binds.
+- `compose.yml` host port parameterized as `${LABELS_PORT:-8080}`; `run_podman.sh` exports `LABELS_PORT` before `podman compose up`. Container-internal port stays 8080. Manual `podman compose up` without the wrapper still works (defaults to 8080).
+- `run_local.sh` drops `set -u` because `source_me.sh` sources `~/.bashrc`, which on macOS Homebrew can reference an unset `PS1` via bash_completion. `-e -o pipefail` retained.
+- `build_frontend.sh` drops duplicate "frontend build OK" echo (already printed by `esbuild.config.mjs`).
 
 ### Developer Tests and Notes
 
