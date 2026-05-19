@@ -58,7 +58,7 @@ def _safe_superset_count(client, minifig_id: str) -> int | None:
 
 
 #============================================
-def get_minifig_record(minifig_id: str, set_id: str | None = None) -> dict:
+def get_minifig_record(minifig_id: str, set_id: str | None = None) -> dict | None:
 	"""
 	Return a dict with the same keys reportlab_make_minifig_labels.make_minifig_label_data consumes.
 
@@ -71,14 +71,17 @@ def get_minifig_record(minifig_id: str, set_id: str | None = None) -> dict:
 		set_id: optional LEGO set ID to associate with this minifig.
 
 	Returns:
-		Dict with minifig data from BrickLink.
+		Dict with minifig data from BrickLink. None if the ID is unknown to
+		BrickLink (vendor wrapper raises LookupError on 404).
 
 	Raises:
 		CredentialsMissingError: if a live BrickLink call is needed and yml absent.
-		LookupError: if BrickLink has no data for this minifig ID.
 	"""
 	client = _get_client()
-	minifig_data = _call_with_creds_translation(client.getMinifigData, minifig_id)
+	try:
+		minifig_data = _call_with_creds_translation(client.getMinifigData, minifig_id)
+	except LookupError:
+		return None
 	# category and superset are optional in vendor flow (LookupError -> None)
 	category_name = _safe_category(client, minifig_id)
 	superset_count = _safe_superset_count(client, minifig_id)
@@ -90,7 +93,7 @@ def get_minifig_record(minifig_id: str, set_id: str | None = None) -> dict:
 
 
 #============================================
-def get_set_record(set_id: str) -> dict:
+def get_set_record(set_id: str) -> dict | None:
 	"""
 	Return a dict the vendored reportlab_make_set_labels code can consume.
 
@@ -113,7 +116,13 @@ def get_set_record(set_id: str) -> dict:
 	# normalize "10240" -> "10240-1" (matches vendor)
 	if '-' not in set_id:
 		set_id = f'{set_id}-1'
-	base = _call_with_creds_translation(client.getSetData, set_id)
-	detail = _call_with_creds_translation(client.getSetDataDetails, set_id)
+	try:
+		base = _call_with_creds_translation(client.getSetData, set_id)
+	except LookupError:
+		return None
+	try:
+		detail = _call_with_creds_translation(client.getSetDataDetails, set_id)
+	except LookupError:
+		detail = {}
 	base.update(detail)
 	return base

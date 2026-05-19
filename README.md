@@ -30,8 +30,9 @@ v1 in progress. Local-only, Podman-first.
 1. Run `source source_me.sh`.
 2. Run `pip install -r pip_requirements.txt`.
 3. Run `bash sync_vendor.sh` (one-time copy from `external/brick-collection`).
-4. Run `bash run_local.sh`.
-5. Open `http://127.0.0.1:8080`.
+4. Run `bash setup_frontend.sh` (one-time install of tsc + esbuild into `frontend/node_modules/`).
+5. Run `bash run_local.sh`.
+6. Open `http://127.0.0.1:8080`.
 
 ## How it works
 

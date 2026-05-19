@@ -13,6 +13,8 @@ SKIP_DIRS = {
 	".pytest_cache",
 	".mypy_cache",
 	"old_shell_folder",
+	"vendor",
+	"frontend",
 }
 PYTHON_SHEBANG = "#!/usr/bin/env python3"
 REPORT_NAME = "report_shebang.txt"

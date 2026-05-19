@@ -44,7 +44,7 @@ def test_render_minifig_pdf_bright_image(monkeypatch):
 	)
 
 	# Stub image pipeline to return bright image
-	def mock_fetch_and_classify(url, kind, item_id):
+	def mock_fetch_and_classify(url, kind, item_id, on_event=None):
 		png_bytes = _make_test_png_bytes(100, 100)
 		return image_pipeline.Trimmed(
 			image_bytes=png_bytes,
@@ -93,7 +93,7 @@ def test_render_minifig_pdf_dark_reject(monkeypatch):
 	)
 
 	# Stub image pipeline to return dark image (rejected)
-	def mock_fetch_and_classify(url, kind, item_id):
+	def mock_fetch_and_classify(url, kind, item_id, on_event=None):
 		return image_pipeline.DarkImage(
 			action="reject",
 			mean_lstar=20.0,
@@ -141,7 +141,7 @@ def test_render_minifig_pdf_missing_image(monkeypatch):
 	)
 
 	# Stub image pipeline to return missing image
-	def mock_fetch_and_classify(url, kind, item_id):
+	def mock_fetch_and_classify(url, kind, item_id, on_event=None):
 		return image_pipeline.MissingImage(reason="decode failed")
 
 	monkeypatch.setattr(
@@ -207,7 +207,7 @@ def test_render_minifig_pdf_with_calibration(monkeypatch):
 		mock_get_minifig_record
 	)
 
-	def mock_fetch_and_classify(url, kind, item_id):
+	def mock_fetch_and_classify(url, kind, item_id, on_event=None):
 		png_bytes = _make_test_png_bytes(100, 100)
 		return image_pipeline.Trimmed(
 			image_bytes=png_bytes,
@@ -277,7 +277,7 @@ def test_render_set_pdf_bright_image(monkeypatch):
 		mock_get_set_record
 	)
 
-	def mock_fetch_and_classify(url, kind, item_id):
+	def mock_fetch_and_classify(url, kind, item_id, on_event=None):
 		png_bytes = _make_test_png_bytes(150, 150)
 		return image_pipeline.Trimmed(
 			image_bytes=png_bytes,

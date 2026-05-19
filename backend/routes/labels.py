@@ -1,7 +1,10 @@
 """HTTP endpoints for PDF label generation."""
 
 # Standard Library
+import base64
 import json
+import queue
+import threading
 
 # PIP3 modules
 import fastapi
@@ -113,4 +116,176 @@ def post_set_labels(req: schemas.LabelRequest) -> fastapi.Response:
 		content=pdf_bytes,
 		media_type="application/pdf",
 		headers=headers
+	)
+
+
+#============================================
+def _stream_minifig(
+		minifig_pairs: list[tuple[str, str | None]],
+		debug: bool,
+		calibration: bool
+):
+	"""
+	Generator that streams minifig label rendering progress as SSE.
+	Runs renderer in a thread; yields SSE frames from a queue.
+	"""
+	q = queue.Queue()
+
+	def render_thread():
+		try:
+			def on_progress(event):
+				q.put(("progress", event))
+
+			pdf_bytes, warnings = label_renderer.render_minifig_pdf(
+				minifig_pairs,
+				debug,
+				calibration,
+				on_progress=on_progress
+			)
+			q.put(("done", {
+				"type": "done",
+				"pdf_b64": base64.b64encode(pdf_bytes).decode("utf-8"),
+				"warnings": warnings
+			}))
+		except bricklink_adapter.CredentialsMissingError as exc:
+			q.put(("error", {
+				"type": "error",
+				"error": "credentials_missing",
+				"expected_path": str(exc)
+			}))
+		except Exception as exc:
+			q.put(("error", {
+				"type": "error",
+				"error": "rendering_failed",
+				"message": str(exc)
+			}))
+		finally:
+			q.put(("sentinel", None))
+
+	thread = threading.Thread(target=render_thread, daemon=True)
+	thread.start()
+
+	while True:
+		try:
+			msg_type, msg_data = q.get(timeout=300)
+		except queue.Empty:
+			yield f"event: error\ndata: {json.dumps({'type': 'error', 'error': 'timeout', 'message': 'no progress in 300s'})}\n\n"
+			break
+
+		if msg_type == "progress":
+			yield f"event: progress\ndata: {json.dumps(msg_data)}\n\n"
+		elif msg_type == "done":
+			yield f"event: done\ndata: {json.dumps(msg_data)}\n\n"
+			break
+		elif msg_type == "error":
+			yield f"event: error\ndata: {json.dumps(msg_data)}\n\n"
+			break
+		elif msg_type == "sentinel":
+			break
+
+
+def _stream_set(
+		set_ids: list[str],
+		debug: bool,
+		calibration: bool
+):
+	"""
+	Generator that streams set label rendering progress as SSE.
+	Runs renderer in a thread; yields SSE frames from a queue.
+	"""
+	q = queue.Queue()
+
+	def render_thread():
+		try:
+			def on_progress(event):
+				q.put(("progress", event))
+
+			pdf_bytes, warnings = label_renderer.render_set_pdf(
+				set_ids,
+				debug,
+				calibration,
+				on_progress=on_progress
+			)
+			q.put(("done", {
+				"type": "done",
+				"pdf_b64": base64.b64encode(pdf_bytes).decode("utf-8"),
+				"warnings": warnings
+			}))
+		except bricklink_adapter.CredentialsMissingError as exc:
+			q.put(("error", {
+				"type": "error",
+				"error": "credentials_missing",
+				"expected_path": str(exc)
+			}))
+		except Exception as exc:
+			q.put(("error", {
+				"type": "error",
+				"error": "rendering_failed",
+				"message": str(exc)
+			}))
+		finally:
+			q.put(("sentinel", None))
+
+	thread = threading.Thread(target=render_thread, daemon=True)
+	thread.start()
+
+	while True:
+		try:
+			msg_type, msg_data = q.get(timeout=300)
+		except queue.Empty:
+			yield f"event: error\ndata: {json.dumps({'type': 'error', 'error': 'timeout', 'message': 'no progress in 300s'})}\n\n"
+			break
+
+		if msg_type == "progress":
+			yield f"event: progress\ndata: {json.dumps(msg_data)}\n\n"
+		elif msg_type == "done":
+			yield f"event: done\ndata: {json.dumps(msg_data)}\n\n"
+			break
+		elif msg_type == "error":
+			yield f"event: error\ndata: {json.dumps(msg_data)}\n\n"
+			break
+		elif msg_type == "sentinel":
+			break
+
+
+#============================================
+@router.post("/minifigs/stream")
+def post_minifig_labels_stream(req: schemas.LabelRequest) -> fastapi.responses.StreamingResponse:
+	"""
+	Stream minifig labels PDF with per-item progress updates.
+
+	POST /api/labels/minifigs/stream
+	Content-Type: application/json
+
+	Returns: text/event-stream with progress events, final done event carries PDF as base64.
+	"""
+	pairs = [(item_id, None) for item_id in req.ids]
+	return fastapi.responses.StreamingResponse(
+		_stream_minifig(pairs, req.debug, req.calibration),
+		media_type="text/event-stream",
+		headers={
+			"Cache-Control": "no-cache",
+			"X-Accel-Buffering": "no",
+		}
+	)
+
+
+#============================================
+@router.post("/sets/stream")
+def post_set_labels_stream(req: schemas.LabelRequest) -> fastapi.responses.StreamingResponse:
+	"""
+	Stream set labels PDF with per-item progress updates.
+
+	POST /api/labels/sets/stream
+	Content-Type: application/json
+
+	Returns: text/event-stream with progress events, final done event carries PDF as base64.
+	"""
+	return fastapi.responses.StreamingResponse(
+		_stream_set(req.ids, req.debug, req.calibration),
+		media_type="text/event-stream",
+		headers={
+			"Cache-Control": "no-cache",
+			"X-Accel-Buffering": "no",
+		}
 	)

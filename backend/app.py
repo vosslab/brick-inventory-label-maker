@@ -12,6 +12,7 @@ import backend.config
 import backend.static_mount
 import backend.routes.health
 import backend.routes.labels
+import backend.routes.cache
 
 
 #============================================
@@ -38,6 +39,7 @@ def create_app() -> fastapi.FastAPI:
 	# Register routes
 	api_app.include_router(backend.routes.health.router)
 	api_app.include_router(backend.routes.labels.router)
+	api_app.include_router(backend.routes.cache.router)
 
 	# Mount frontend static files if available
 	frontend_dist = backend.static_mount.get_frontend_dist_path()

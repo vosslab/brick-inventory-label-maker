@@ -4,26 +4,45 @@
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>Brick inventory label maker</title>
+	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
 	<link rel="stylesheet" href="style.css">
 </head>
 <body>
+	<div class="brick-row">
+		<span class="brick brick-1"></span>
+		<span class="brick brick-2"></span>
+		<span class="brick brick-3"></span>
+		<span class="brick brick-4"></span>
+		<span class="brick brick-5"></span>
+		<span class="brick brick-6"></span>
+		<span class="brick brick-7"></span>
+		<span class="brick brick-8"></span>
+	</div>
+
 	<header>
-		<h1>Brick inventory label maker</h1>
+		<h1>Brick Inventory Label Maker</h1>
 		<div id="health-banner"></div>
 	</header>
+
+	<div id="warnings-panel-top" class="warnings-panel-top hidden"></div>
 
 	<main>
 		<div class="layout">
 			<section class="panel left-panel">
 				<div class="section">
-					<h2>Mode</h2>
+					<h2>
+						<i class="fa-solid fa-wand-magic-sparkles"></i>
+						Mode
+					</h2>
 					<div class="radio-group">
 						<label>
 							<input type="radio" name="mode" value="minifig" checked>
+							<i class="fa-solid fa-user"></i>
 							Minifigures
 						</label>
 						<label>
 							<input type="radio" name="mode" value="set">
+							<i class="fa-solid fa-cubes-stacked"></i>
 							Sets
 						</label>
 					</div>
@@ -34,34 +53,47 @@
 					<div class="checkbox-group">
 						<label>
 							<input type="checkbox" id="debug-flag">
+							<i class="fa-solid fa-bug"></i>
 							Debug mode
 						</label>
 						<label>
 							<input type="checkbox" id="calibration-flag">
+							<i class="fa-solid fa-ruler-combined"></i>
 							Calibration
 						</label>
 					</div>
 				</div>
 
 				<div class="section">
-					<h2>IDs</h2>
+					<h2>IDs to scan</h2>
 					<textarea id="id-input" placeholder="Enter IDs (one per line or comma-separated)"></textarea>
 				</div>
 
+				<div class="section button-section">
+					<button id="generate-btn" class="btn-primary">
+						<i class="fa-solid fa-wand-magic-sparkles"></i>
+						Generate labels
+					</button>
+				</div>
+
 				<div class="section">
-					<button id="generate-btn">Generate labels</button>
+					<h2>Activity log</h2>
+					<div id="progress-log" class="log"></div>
 				</div>
 			</section>
 
 			<section class="panel right-panel">
-				<div class="subsection">
-					<h2>Progress</h2>
-					<div id="progress-log" class="log"></div>
-				</div>
+				<h2>
+					<i class="fa-solid fa-list-check"></i>
+					Live progress
+				</h2>
+				<div id="progress-feed" class="progress-feed"></div>
 
-				<div class="subsection">
-					<h2>Warnings</h2>
-					<div id="warnings-panel" class="warnings"></div>
+				<div class="section">
+					<button id="download-btn" class="btn-download hidden">
+						<i class="fa-solid fa-download"></i>
+						Download PDF
+					</button>
 				</div>
 			</section>
 		</div>

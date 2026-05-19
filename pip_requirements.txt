@@ -4,5 +4,6 @@ pydantic
 reportlab
 pillow
 pyyaml
+requests
 requests-oauthlib
 numpy

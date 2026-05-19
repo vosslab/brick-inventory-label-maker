@@ -5,14 +5,18 @@ import dataclasses
 import io
 import os
 import random
+import subprocess
 import time
+from typing import Callable
 
 # PIP3 modules
 import numpy
 import PIL.Image
+import requests.exceptions
 
 # local repo modules
 import libbrick.image_cache
+import libbrick.path_utils
 
 
 #============================================
@@ -54,6 +58,14 @@ def _dark_action() -> str:
 def _dark_threshold() -> float:
 	"""Read DARK_IMAGE_LSTAR_THRESHOLD lazily."""
 	return float(os.environ.get('DARK_IMAGE_LSTAR_THRESHOLD', '35'))
+
+
+def _get_images_dir() -> str:
+	"""Compute images directory path the same way vendor does."""
+	git_root = libbrick.path_utils.get_git_root()
+	if git_root is None:
+		return 'images'
+	return os.path.join(git_root, 'images')
 
 
 #============================================
@@ -109,6 +121,24 @@ def _is_white_ish(pixel: tuple) -> bool:
 	return r >= 245 and g >= 245 and b >= 245
 
 
+def _flatten_to_white(image: PIL.Image.Image) -> PIL.Image.Image:
+	"""
+	Composite an image onto a solid white background and return RGB.
+
+	rembg-processed PNGs carry transparency where the background was removed.
+	Naive `image.convert('RGB')` would composite against black; explicit paste
+	onto a white canvas preserves the printable "white background" appearance.
+	"""
+	if image.mode == 'RGB':
+		return image
+	if image.mode != 'RGBA':
+		image = image.convert('RGBA')
+	background = PIL.Image.new('RGB', image.size, (255, 255, 255))
+	# split()[3] is the alpha channel used as paste mask
+	background.paste(image, mask=image.split()[3])
+	return background
+
+
 def _trim_white_edges(image: PIL.Image.Image) -> PIL.Image.Image | None:
 	"""
 	Trim white-ish edges from image.
@@ -152,7 +182,12 @@ def _trim_white_edges(image: PIL.Image.Image) -> PIL.Image.Image | None:
 # Main pipeline
 
 
-def fetch_and_classify(image_url: str, kind: str, item_id: str) -> Trimmed | DarkImage | MissingImage:
+def fetch_and_classify(
+	image_url: str,
+	kind: str,
+	item_id: str,
+	on_event: Callable[[dict], None] | None = None,
+) -> Trimmed | DarkImage | MissingImage:
 	"""
 	Fetch image via vendored libbrick cache, trim white edges, compute CIE L*, and classify.
 
@@ -160,6 +195,8 @@ def fetch_and_classify(image_url: str, kind: str, item_id: str) -> Trimmed | Dar
 		image_url: URL to fetch image from.
 		kind: Image kind ('minifig' or 'set'). Must be one of these values.
 		item_id: Item ID for cache key.
+		on_event: Optional callback(event: dict) -> None. Emits image_downloaded and
+			image_processed events.
 
 	Returns:
 		Trimmed: bright image with cropped bytes and L* value.
@@ -170,20 +207,45 @@ def fetch_and_classify(image_url: str, kind: str, item_id: str) -> Trimmed | Dar
 	if kind not in ('minifig', 'set'):
 		raise ValueError(f"kind must be 'minifig' or 'set', got {kind!r}")
 
-	# Random delay before network call, per repo style
-	time.sleep(random.random())
+	# Compute cache paths using vendor's logic
+	images_dir = _get_images_dir()
+	libbrick.image_cache.ensure_images_directory(images_dir)
+	raw_filename = os.path.join(images_dir, 'raw', f"{kind}_{item_id}.jpg")
+	processed_filename = os.path.join(images_dir, 'processed', f"{kind}_{item_id}.png")
 
-	# Fetch and cache image via vendored libbrick
-	try:
-		cached_path = libbrick.image_cache.get_cached_image(
-			image_url, kind, item_id
-		)
-	except Exception as e:
-		return MissingImage(reason=str(e))
+	# Cache-warm short-circuit: processed file is the only thing downstream needs.
+	# If processed exists, skip both download and process; otherwise download (if raw
+	# is missing) and process. Raw alone is not sufficient: still process.
+	processed_cached = os.path.exists(processed_filename)
+	raw_cached = os.path.exists(raw_filename)
+
+	if not processed_cached:
+		if not raw_cached:
+			# Random delay before network call, per repo style
+			time.sleep(random.random())
+			# Download image (OSError covers FileNotFoundError + disk-full PermissionError)
+			try:
+				libbrick.image_cache.download_image(image_url, raw_filename)
+			except (OSError, requests.exceptions.RequestException) as e:
+				return MissingImage(reason=str(e))
+
+	# Emit image_downloaded event regardless of cache state.
+	if on_event:
+		on_event({"type": "image_downloaded", "id": item_id, "kind": kind})
+
+	if not processed_cached:
+		try:
+			libbrick.image_cache.process_image(raw_filename, processed_filename)
+		except (subprocess.CalledProcessError, OSError) as e:
+			return MissingImage(reason=str(e))
+
+	# Emit image_processed event (cache status or actual process)
+	if on_event:
+		on_event({"type": "image_processed", "id": item_id, "kind": kind})
 
 	# Load and process the cached image
 	try:
-		image = PIL.Image.open(cached_path)
+		image = PIL.Image.open(processed_filename)
 	except Exception:
 		return MissingImage(reason="decode failed")
 
@@ -192,11 +254,11 @@ def fetch_and_classify(image_url: str, kind: str, item_id: str) -> Trimmed | Dar
 	if trimmed is None:
 		return MissingImage(reason="blank image")
 
-	# Convert to RGB for L* computation (drop alpha if present)
-	if trimmed.mode != 'RGB':
-		trimmed_rgb = trimmed.convert('RGB')
-	else:
-		trimmed_rgb = trimmed
+	# Flatten transparency onto white background BEFORE RGB conversion.
+	# PIL's convert('RGB') composites against black by default; rembg output
+	# has transparent background, so a naive convert would turn the bin labels
+	# into a black-bordered minifig. Explicit composite keeps the label printable.
+	trimmed_rgb = _flatten_to_white(trimmed)
 
 	# Compute mean L*
 	rgb_array = numpy.array(trimmed_rgb)

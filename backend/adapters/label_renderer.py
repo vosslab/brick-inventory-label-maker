@@ -4,6 +4,7 @@
 import io
 import os
 import tempfile
+from typing import Callable
 
 # PIP3 modules
 import reportlab.lib.pagesizes
@@ -40,9 +41,7 @@ def _choose_set_name_size(set_name: str) -> float:
 
 def _make_set_label_data(set_dict: dict, msrp_cache: dict) -> dict:
 	"""Build derived fields used for one set label."""
-	set_id = set_dict.get("set_id")
-	if set_id is None:
-		raise ValueError("set_id is required")
+	set_id = set_dict["set_id"]
 	lego_id = int(str(set_id).split("-")[0])
 	set_name = str(set_dict.get("name", "UNKNOWN")).replace("#", "").replace(" & ", " and ")
 	name_size = _choose_set_name_size(set_name)
@@ -115,6 +114,7 @@ def render_minifig_pdf(
 		minifig_id_pairs: list[tuple[str, str | None]],
 		debug: bool,
 		calibration: bool,
+		on_progress: Callable[[dict], None] | None = None,
 		) -> tuple[bytes, list[dict]]:
 	"""
 	Build a minifig labels PDF.
@@ -123,6 +123,7 @@ def render_minifig_pdf(
 		minifig_id_pairs: list of (minifig_id, optional set_id) tuples.
 		debug: draw debug outlines on each page.
 		calibration: prepend a calibration page.
+		on_progress: optional callable(event: dict) -> None. Emits progress events.
 
 	Returns:
 		Tuple of (pdf_bytes, warnings_list). warnings_list is a list of
@@ -142,8 +143,19 @@ def render_minifig_pdf(
 	image_paths = []
 	warnings = []
 
+	if on_progress:
+		on_progress({"type": "start", "mode": "minifig", "count": len(minifig_id_pairs)})
+
 	with tempfile.TemporaryDirectory() as tmpdir:
-		for minifig_id, set_id in minifig_id_pairs:
+		for index, (minifig_id, set_id) in enumerate(minifig_id_pairs):
+			if on_progress:
+				on_progress({
+					"type": "item_start",
+					"id": minifig_id,
+					"index": index + 1,
+					"total": len(minifig_id_pairs)
+				})
+
 			record = bricklink_adapter.get_minifig_record(minifig_id, set_id)
 			if record is None:
 				warnings.append({
@@ -151,6 +163,13 @@ def render_minifig_pdf(
 					"reason": "bricklink_lookup_failed",
 					"mean_lstar": None
 				})
+				if on_progress:
+					on_progress({
+						"type": "item_done",
+						"id": minifig_id,
+						"name": minifig_id,
+						"warning": "bricklink_lookup_failed"
+					})
 				continue
 
 			label_data = minifig_module.make_minifig_label_data(
@@ -158,6 +177,9 @@ def render_minifig_pdf(
 				record.get('superset_count')
 			)
 
+			# Image is best-effort: when it cannot be fetched/decoded, still emit
+			# the label with text-only content. vendor draw_image_fit handles None.
+			image_path: str | None = None
 			image_url = record.get('image_url')
 			if image_url is None:
 				warnings.append({
@@ -165,42 +187,57 @@ def render_minifig_pdf(
 					"reason": "image_url_missing",
 					"mean_lstar": None
 				})
-				continue
-
-			# Fetch and classify image
-			result = image_pipeline.fetch_and_classify(image_url, 'minifig', minifig_id)
-
-			if isinstance(result, image_pipeline.MissingImage):
-				warnings.append({
-					"id": minifig_id,
-					"reason": f"image_missing: {result.reason}",
-					"mean_lstar": None
-				})
-				continue
-
-			if isinstance(result, image_pipeline.DarkImage):
-				warnings.append({
-					"id": minifig_id,
-					"reason": f"dark_image_{result.action}",
-					"mean_lstar": result.mean_lstar
-				})
-				if result.action == 'reject':
-					# Skip this item entirely
-					continue
-				image_bytes = result.image_bytes
 			else:
-				# Trimmed bright image
-				image_bytes = result.image_bytes
-
-			# Write trimmed PNG to temp file for ReportLab
-			image_path = os.path.join(tmpdir, f"{minifig_id}.png")
-			with open(image_path, 'wb') as f:
-				f.write(image_bytes)
+				image_event_callback = None
+				if on_progress:
+					image_event_callback = on_progress
+				result = image_pipeline.fetch_and_classify(
+					image_url, 'minifig', minifig_id, on_event=image_event_callback
+				)
+				if isinstance(result, image_pipeline.MissingImage):
+					warnings.append({
+						"id": minifig_id,
+						"reason": f"image_missing: {result.reason}",
+						"mean_lstar": None
+					})
+				elif isinstance(result, image_pipeline.DarkImage):
+					warnings.append({
+						"id": minifig_id,
+						"reason": f"dark_image_{result.action}",
+						"mean_lstar": result.mean_lstar
+					})
+					if result.action != 'reject':
+						image_bytes = result.image_bytes
+						image_path = os.path.join(tmpdir, f"{minifig_id}.png")
+						with open(image_path, 'wb') as f:
+							f.write(image_bytes)
+				else:
+					# Trimmed bright image
+					image_bytes = result.image_bytes
+					image_path = os.path.join(tmpdir, f"{minifig_id}.png")
+					with open(image_path, 'wb') as f:
+						f.write(image_bytes)
 
 			records.append(label_data)
 			image_paths.append(image_path)
 
+			# Emit item completion event
+			warning_msg = None
+			for w in warnings:
+				if w["id"] == minifig_id:
+					warning_msg = w["reason"]
+					break
+			if on_progress:
+				on_progress({
+					"type": "item_done",
+					"id": minifig_id,
+					"name": minifig_id,
+					"warning": warning_msg
+				})
+
 		# Render to BytesIO
+		if on_progress:
+			on_progress({"type": "render_start"})
 		buf = io.BytesIO()
 		pdf = reportlab.pdfgen.canvas.Canvas(buf, pagesize=reportlab.lib.pagesizes.letter)
 
@@ -238,6 +275,13 @@ def render_minifig_pdf(
 		pdf.save()
 		pdf_bytes = buf.getvalue()
 
+	if on_progress:
+		on_progress({
+			"type": "done",
+			"warnings_count": len(warnings),
+			"pages": pdf.getPageNumber()
+		})
+
 	return pdf_bytes, warnings
 
 
@@ -246,6 +290,7 @@ def render_set_pdf(
 		set_ids: list[str],
 		debug: bool,
 		calibration: bool,
+		on_progress: Callable[[dict], None] | None = None,
 		) -> tuple[bytes, list[dict]]:
 	"""
 	Build a set labels PDF.
@@ -254,6 +299,7 @@ def render_set_pdf(
 		set_ids: list of LEGO set IDs (with or without dash).
 		debug: draw debug outlines on each page.
 		calibration: prepend a calibration page.
+		on_progress: optional callable(event: dict) -> None. Emits progress events.
 
 	Returns:
 		Tuple of (pdf_bytes, warnings_list). warnings_list is a list of
@@ -276,8 +322,19 @@ def render_set_pdf(
 	image_paths = []
 	warnings = []
 
+	if on_progress:
+		on_progress({"type": "start", "mode": "set", "count": len(set_ids)})
+
 	with tempfile.TemporaryDirectory() as tmpdir:
-		for set_id in set_ids:
+		for index, set_id in enumerate(set_ids):
+			if on_progress:
+				on_progress({
+					"type": "item_start",
+					"id": set_id,
+					"index": index + 1,
+					"total": len(set_ids)
+				})
+
 			try:
 				set_record = bricklink_adapter.get_set_record(set_id)
 			except bricklink_adapter.CredentialsMissingError:
@@ -288,6 +345,13 @@ def render_set_pdf(
 					"reason": "bricklink_lookup_failed",
 					"mean_lstar": None
 				})
+				if on_progress:
+					on_progress({
+						"type": "item_done",
+						"id": set_id,
+						"name": set_id,
+						"warning": "bricklink_lookup_failed"
+					})
 				continue
 			except Exception as e:
 				warnings.append({
@@ -295,10 +359,19 @@ def render_set_pdf(
 					"reason": f"error: {str(e)}",
 					"mean_lstar": None
 				})
+				if on_progress:
+					on_progress({
+						"type": "item_done",
+						"id": set_id,
+						"name": set_id,
+						"warning": f"error: {str(e)}"
+					})
 				continue
 
 			label_data = _make_set_label_data(set_record, msrp_cache)
 
+			# Image best-effort (same as minifig path).
+			image_path: str | None = None
 			image_url = set_record.get('set_img_url')
 			if image_url is None:
 				warnings.append({
@@ -306,42 +379,56 @@ def render_set_pdf(
 					"reason": "image_url_missing",
 					"mean_lstar": None
 				})
-				continue
-
-			# Fetch and classify image
-			result = image_pipeline.fetch_and_classify(image_url, 'set', set_id)
-
-			if isinstance(result, image_pipeline.MissingImage):
-				warnings.append({
-					"id": set_id,
-					"reason": f"image_missing: {result.reason}",
-					"mean_lstar": None
-				})
-				continue
-
-			if isinstance(result, image_pipeline.DarkImage):
-				warnings.append({
-					"id": set_id,
-					"reason": f"dark_image_{result.action}",
-					"mean_lstar": result.mean_lstar
-				})
-				if result.action == 'reject':
-					# Skip this item entirely
-					continue
-				image_bytes = result.image_bytes
 			else:
-				# Trimmed bright image
-				image_bytes = result.image_bytes
-
-			# Write trimmed PNG to temp file for ReportLab
-			image_path = os.path.join(tmpdir, f"{set_id}.png")
-			with open(image_path, 'wb') as f:
-				f.write(image_bytes)
+				image_event_callback = None
+				if on_progress:
+					image_event_callback = on_progress
+				result = image_pipeline.fetch_and_classify(
+					image_url, 'set', set_id, on_event=image_event_callback
+				)
+				if isinstance(result, image_pipeline.MissingImage):
+					warnings.append({
+						"id": set_id,
+						"reason": f"image_missing: {result.reason}",
+						"mean_lstar": None
+					})
+				elif isinstance(result, image_pipeline.DarkImage):
+					warnings.append({
+						"id": set_id,
+						"reason": f"dark_image_{result.action}",
+						"mean_lstar": result.mean_lstar
+					})
+					if result.action != 'reject':
+						image_bytes = result.image_bytes
+						image_path = os.path.join(tmpdir, f"{set_id}.png")
+						with open(image_path, 'wb') as f:
+							f.write(image_bytes)
+				else:
+					image_bytes = result.image_bytes
+					image_path = os.path.join(tmpdir, f"{set_id}.png")
+					with open(image_path, 'wb') as f:
+						f.write(image_bytes)
 
 			records.append(label_data)
 			image_paths.append(image_path)
 
+			# Emit item completion event
+			warning_msg = None
+			for w in warnings:
+				if w["id"] == set_id:
+					warning_msg = w["reason"]
+					break
+			if on_progress:
+				on_progress({
+					"type": "item_done",
+					"id": set_id,
+					"name": label_data.get("set_name", set_id),
+					"warning": warning_msg
+				})
+
 		# Render to BytesIO
+		if on_progress:
+			on_progress({"type": "render_start"})
 		buf = io.BytesIO()
 		pdf = reportlab.pdfgen.canvas.Canvas(buf, pagesize=reportlab.lib.pagesizes.letter)
 
@@ -378,5 +465,12 @@ def render_set_pdf(
 
 		pdf.save()
 		pdf_bytes = buf.getvalue()
+
+	if on_progress:
+		on_progress({
+			"type": "done",
+			"warnings_count": len(warnings),
+			"pages": pdf.getPageNumber()
+		})
 
 	return pdf_bytes, warnings

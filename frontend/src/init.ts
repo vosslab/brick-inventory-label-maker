@@ -1,10 +1,12 @@
 import type { Mode } from './types/api_types.js';
-import { fetchHealth, generateLabels } from './api/client.js';
+import { fetchHealth, streamLabels } from './api/client.js';
 import { renderHealthBanner } from './ui/health_banner.js';
 import { parseIds } from './ui/input_panel.js';
 import { getFlags } from './ui/flags_panel.js';
 import { ProgressLog } from './ui/progress_log.js';
 import { triggerDownload, formatDownloadFilename } from './ui/download.js';
+import { renderWarningsPanel } from './ui/warnings_panel.js';
+import { ProgressFeed } from './ui/progress_feed.js';
 
 let isGenerating = false;
 
@@ -33,16 +35,31 @@ async function initApp(): Promise<void> {
 	const generateBtn = document.getElementById('generate-btn') as
 		| HTMLButtonElement
 		| undefined;
+	const downloadBtn = document.getElementById('download-btn') as
+		| HTMLButtonElement
+		| undefined;
 	const idInput = document.getElementById('id-input') as
 		| HTMLTextAreaElement
 		| undefined;
+	const warningsPanelTop = document.getElementById('warnings-panel-top');
 	const progressLog = new ProgressLog('progress-log');
-	const warningsPanel = document.getElementById('warnings-panel');
+	const progressFeed = new ProgressFeed('progress-feed');
 
-	if (!generateBtn || !idInput || !warningsPanel) {
+	if (!generateBtn || !idInput || !warningsPanelTop || !downloadBtn) {
 		console.error('Required elements not found');
 		return;
 	}
+
+	let cachedPdfBlob: Blob | null = null;
+	let cachedFilename: string = '';
+
+	// Wire download button
+	downloadBtn.addEventListener('click', () => {
+		if (cachedPdfBlob && cachedFilename) {
+			triggerDownload(cachedPdfBlob, cachedFilename);
+			progressLog.info(`downloaded: ${cachedFilename}`);
+		}
+	});
 
 	// Wire generate button
 	generateBtn.addEventListener('click', async () => {
@@ -74,35 +91,89 @@ async function initApp(): Promise<void> {
 		// Start generation
 		isGenerating = true;
 		generateBtn.disabled = true;
+		downloadBtn.classList.add('hidden');
+		cachedPdfBlob = null;
+		cachedFilename = '';
 
 		try {
 			progressLog.clear();
+			progressFeed.clear();
+			warningsPanelTop.classList.add('hidden');
 			progressLog.info(`generating ${mode} labels for ${ids.length} id${ids.length === 1 ? '' : 's'}...`);
 
-			const result = await generateLabels(mode, {
+			let pdfB64: string | null = null;
+			let finalWarnings: Array<{ id: string; reason: string; mean_lstar: number | null }> = [];
+
+			for await (const event of streamLabels(mode, {
 				ids,
 				debug: flags.debug,
 				calibration: flags.calibration,
-			});
-
-			// Check for credentials error
-			if ('error' in result) {
-				progressLog.warn(
-					`credentials missing: drop yml at ${result.expected_path}`
-				);
-				return;
+			})) {
+				switch (event.type) {
+					case 'start':
+						progressLog.info(`starting ${event.mode} labels for ${event.count} ids...`);
+						break;
+					case 'item_start':
+						progressFeed.startItem(event.id);
+						progressLog.info(`fetching ${event.id} (${event.index}/${event.total})...`);
+						break;
+					case 'item_done':
+						progressFeed.updateItem(event.id, event.name, event.warning);
+						if (event.warning) {
+							progressLog.warn(`${event.id}: ${event.name} [${event.warning}]`);
+						} else {
+							progressLog.info(`${event.id}: ${event.name}`);
+						}
+						break;
+					case 'image_downloaded':
+						progressFeed.markDownloaded(event.id, event.kind);
+						break;
+					case 'image_processed':
+						progressFeed.markProcessed(event.id, event.kind);
+						break;
+					case 'render_start':
+						progressFeed.showRendering();
+						progressLog.info('rendering pdf...');
+						break;
+					case 'done':
+						pdfB64 = event.pdf_b64;
+						finalWarnings = event.warnings;
+						progressFeed.hideRendering();
+						progressLog.info('labels generated successfully');
+						break;
+					case 'error':
+						if (event.error === 'credentials_missing') {
+							progressLog.warn(
+								`credentials missing: drop yml at ${event.expected_path}`
+							);
+						} else {
+							progressLog.warn(`${event.error}: ${event.message || ''}`);
+						}
+						return;
+				}
 			}
 
-			// Success: render warnings and download
-			progressLog.info('labels generated successfully');
+			// Success: render warnings and enable download
+			if (pdfB64) {
+				// Decode base64 to Blob
+				const binaryString = atob(pdfB64);
+				const bytes = new Uint8Array(binaryString.length);
+				for (let i = 0; i < binaryString.length; i++) {
+					bytes[i] = binaryString.charCodeAt(i);
+				}
+				const pdfBlob = new Blob([bytes], { type: 'application/pdf' });
 
-			// Render warnings
-			renderWarnings(warningsPanel, result.warnings);
+				// Cache for download button
+				cachedPdfBlob = pdfBlob;
+				cachedFilename = formatDownloadFilename(mode);
 
-			// Trigger download
-			const filename = formatDownloadFilename(mode);
-			triggerDownload(result.pdfBlob, filename);
-			progressLog.info(`downloaded: ${filename}`);
+				// Render warnings
+				renderWarningsPanel(warningsPanelTop, finalWarnings);
+
+				// Show download button
+				downloadBtn.classList.remove('hidden');
+				progressLog.info(`ready to download: ${cachedFilename}`);
+			}
 		} catch (error) {
 			const msg = error instanceof Error ? error.message : String(error);
 			progressLog.warn(`error: ${msg}`);
@@ -111,51 +182,6 @@ async function initApp(): Promise<void> {
 			generateBtn.disabled = false;
 		}
 	});
-}
-
-//============================================
-function renderWarnings(
-	container: HTMLElement,
-	warnings: Array<{ id: string; reason: string; mean_lstar: number | null }>
-): void {
-	container.innerHTML = '';
-
-	if (warnings.length === 0) {
-		const empty = document.createElement('div');
-		empty.className = 'empty-state';
-		empty.textContent = 'No warnings';
-		container.appendChild(empty);
-		return;
-	}
-
-	for (const warning of warnings) {
-		const item = document.createElement('div');
-		item.className = 'warning-item';
-
-		// Add dark variant styling if appropriate
-		if (warning.reason.toLowerCase().includes('dark')) {
-			item.classList.add('warning-item-dark');
-		}
-
-		const idEl = document.createElement('div');
-		idEl.className = 'warning-item-id';
-		idEl.textContent = warning.id;
-		item.appendChild(idEl);
-
-		const reasonEl = document.createElement('div');
-		reasonEl.className = 'warning-item-reason';
-		reasonEl.textContent = warning.reason;
-		item.appendChild(reasonEl);
-
-		if (warning.mean_lstar !== null && warning.mean_lstar !== undefined) {
-			const lstarEl = document.createElement('div');
-			lstarEl.className = 'warning-item-lstar';
-			lstarEl.textContent = `L* = ${warning.mean_lstar.toFixed(1)}`;
-			item.appendChild(lstarEl);
-		}
-
-		container.appendChild(item);
-	}
 }
 
 //============================================

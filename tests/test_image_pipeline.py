@@ -16,6 +16,30 @@ import libbrick.image_cache
 # Helpers for test fixtures
 
 
+def _mock_download_and_process(png_path, monkeypatch):
+	"""Set up mocks for download_image and process_image."""
+	import shutil
+	import os
+
+	def mock_download(url, filename):
+		os.makedirs(os.path.dirname(filename), exist_ok=True)
+		shutil.copy(str(png_path), filename)
+		return filename
+
+	def mock_process(raw_filename, processed_filename):
+		os.makedirs(os.path.dirname(processed_filename), exist_ok=True)
+		shutil.copy(raw_filename, processed_filename)
+		return processed_filename
+
+	def mock_ensure_dir(images_dir):
+		os.makedirs(os.path.join(images_dir, 'raw'), exist_ok=True)
+		os.makedirs(os.path.join(images_dir, 'processed'), exist_ok=True)
+
+	monkeypatch.setattr(libbrick.image_cache, 'download_image', mock_download)
+	monkeypatch.setattr(libbrick.image_cache, 'process_image', mock_process)
+	monkeypatch.setattr(libbrick.image_cache, 'ensure_images_directory', mock_ensure_dir)
+
+
 def _make_png_with_border(
 	width: int = 200,
 	height: int = 200,
@@ -76,11 +100,13 @@ def test_trim_removes_white_border(tmp_path, monkeypatch):
 	png_path = tmp_path / "image.png"
 	png_path.write_bytes(png_bytes)
 
-	def mock_get_cached(url, kind, item_id):
-		return str(png_path)
+	_mock_download_and_process(png_path, monkeypatch)
+
+	# Mock images directory to isolate test from existing cache
+	images_dir = tmp_path / "images"
+	monkeypatch.setattr(image_pipeline, '_get_images_dir', lambda: str(images_dir))
 
 	mock_sleep = mock.Mock()
-	monkeypatch.setattr(libbrick.image_cache, 'get_cached_image', mock_get_cached)
 	monkeypatch.setattr('time.sleep', mock_sleep)
 
 	result = image_pipeline.fetch_and_classify('http://example.com/image.png', 'minifig', 'item1')
@@ -99,11 +125,13 @@ def test_pure_black_returns_dark_image_warn_by_default(tmp_path, monkeypatch):
 	png_path = tmp_path / "black.png"
 	png_path.write_bytes(png_bytes)
 
-	def mock_get_cached(url, kind, item_id):
-		return str(png_path)
+	_mock_download_and_process(png_path, monkeypatch)
+
+	# Mock images directory to isolate test from existing cache
+	images_dir = tmp_path / "images"
+	monkeypatch.setattr(image_pipeline, '_get_images_dir', lambda: str(images_dir))
 
 	mock_sleep = mock.Mock()
-	monkeypatch.setattr(libbrick.image_cache, 'get_cached_image', mock_get_cached)
 	monkeypatch.setattr('time.sleep', mock_sleep)
 
 	result = image_pipeline.fetch_and_classify('http://example.com/black.png', 'set', 'item1')
@@ -122,11 +150,13 @@ def test_reject_action_drops_image_bytes(tmp_path, monkeypatch):
 	png_path = tmp_path / "black.png"
 	png_path.write_bytes(png_bytes)
 
-	def mock_get_cached(url, kind, item_id):
-		return str(png_path)
+	_mock_download_and_process(png_path, monkeypatch)
+
+	# Mock images directory to isolate test from existing cache
+	images_dir = tmp_path / "images"
+	monkeypatch.setattr(image_pipeline, '_get_images_dir', lambda: str(images_dir))
 
 	mock_sleep = mock.Mock()
-	monkeypatch.setattr(libbrick.image_cache, 'get_cached_image', mock_get_cached)
 	monkeypatch.setattr('time.sleep', mock_sleep)
 	monkeypatch.setenv('DARK_IMAGE_ACTION', 'reject')
 
@@ -145,11 +175,13 @@ def test_ignore_action_returns_dark_image_with_bytes(tmp_path, monkeypatch):
 	png_path = tmp_path / "black.png"
 	png_path.write_bytes(png_bytes)
 
-	def mock_get_cached(url, kind, item_id):
-		return str(png_path)
+	_mock_download_and_process(png_path, monkeypatch)
+
+	# Mock images directory to isolate test from existing cache
+	images_dir = tmp_path / "images"
+	monkeypatch.setattr(image_pipeline, '_get_images_dir', lambda: str(images_dir))
 
 	mock_sleep = mock.Mock()
-	monkeypatch.setattr(libbrick.image_cache, 'get_cached_image', mock_get_cached)
 	monkeypatch.setattr('time.sleep', mock_sleep)
 	monkeypatch.setenv('DARK_IMAGE_ACTION', 'ignore')
 
@@ -168,11 +200,13 @@ def test_pure_white_returns_missing_image(tmp_path, monkeypatch):
 	png_path = tmp_path / "white.png"
 	png_path.write_bytes(png_bytes)
 
-	def mock_get_cached(url, kind, item_id):
-		return str(png_path)
+	_mock_download_and_process(png_path, monkeypatch)
+
+	# Mock images directory to isolate test from existing cache
+	images_dir = tmp_path / "images"
+	monkeypatch.setattr(image_pipeline, '_get_images_dir', lambda: str(images_dir))
 
 	mock_sleep = mock.Mock()
-	monkeypatch.setattr(libbrick.image_cache, 'get_cached_image', mock_get_cached)
 	monkeypatch.setattr('time.sleep', mock_sleep)
 
 	result = image_pipeline.fetch_and_classify('http://example.com/white.png', 'minifig', 'item1')
@@ -182,13 +216,25 @@ def test_pure_white_returns_missing_image(tmp_path, monkeypatch):
 	mock_sleep.assert_called_once()
 
 
-def test_get_cached_image_failure_returns_missing_image(monkeypatch):
-	"""get_cached_image raising an exception should return MissingImage."""
-	def mock_get_cached_error(url, kind, item_id):
-		raise RuntimeError('network error')
+def test_download_image_failure_returns_missing_image(tmp_path, monkeypatch):
+	"""download_image raising an exception should return MissingImage."""
+	import requests.exceptions
+
+	def mock_download_error(url, filename):
+		raise requests.exceptions.RequestException('network error')
+
+	def mock_ensure_dir(images_dir):
+		import os
+		os.makedirs(os.path.join(images_dir, 'raw'), exist_ok=True)
+		os.makedirs(os.path.join(images_dir, 'processed'), exist_ok=True)
+
+	# Mock images directory to isolate test from existing cache
+	images_dir = tmp_path / "images"
+	monkeypatch.setattr(image_pipeline, '_get_images_dir', lambda: str(images_dir))
 
 	mock_sleep = mock.Mock()
-	monkeypatch.setattr(libbrick.image_cache, 'get_cached_image', mock_get_cached_error)
+	monkeypatch.setattr(libbrick.image_cache, 'download_image', mock_download_error)
+	monkeypatch.setattr(libbrick.image_cache, 'ensure_images_directory', mock_ensure_dir)
 	monkeypatch.setattr('time.sleep', mock_sleep)
 
 	result = image_pipeline.fetch_and_classify('http://example.com/fail.png', 'set', 'item1')
@@ -198,12 +244,16 @@ def test_get_cached_image_failure_returns_missing_image(monkeypatch):
 	mock_sleep.assert_called_once()
 
 
-def test_invalid_kind_raises_value_error(monkeypatch):
+def test_invalid_kind_raises_value_error(tmp_path, monkeypatch):
 	"""Invalid kind should raise ValueError before any fetch."""
+	# Mock images directory to isolate test from existing cache
+	images_dir = tmp_path / "images"
+	monkeypatch.setattr(image_pipeline, '_get_images_dir', lambda: str(images_dir))
+
 	mock_sleep = mock.Mock()
-	mock_get_cached = mock.Mock()
+	mock_download = mock.Mock()
 	monkeypatch.setattr('time.sleep', mock_sleep)
-	monkeypatch.setattr(libbrick.image_cache, 'get_cached_image', mock_get_cached)
+	monkeypatch.setattr(libbrick.image_cache, 'download_image', mock_download)
 
 	try:
 		image_pipeline.fetch_and_classify('http://example.com/image.png', 'invalid_kind', 'item1')
@@ -213,11 +263,11 @@ def test_invalid_kind_raises_value_error(monkeypatch):
 
 	# Sleep should NOT be called because validation happens first
 	mock_sleep.assert_not_called()
-	mock_get_cached.assert_not_called()
+	mock_download.assert_not_called()
 
 
 def test_random_sleep_called_before_fetch(tmp_path, monkeypatch):
-	"""Random sleep should be called once before get_cached_image."""
+	"""Random sleep should be called once before download_image."""
 	png_bytes = _make_solid_png(width=100, height=100, color=(200, 200, 200))
 
 	png_path = tmp_path / "image.png"
@@ -230,17 +280,109 @@ def test_random_sleep_called_before_fetch(tmp_path, monkeypatch):
 		assert isinstance(duration, float)
 		assert 0 <= duration <= 1
 
-	def mock_get_cached(url, kind, item_id):
-		call_order.append(('get_cached_image', url))
-		return str(png_path)
+	def mock_download(url, filename):
+		import os
+		import shutil
+		call_order.append(('download_image', url))
+		os.makedirs(os.path.dirname(filename), exist_ok=True)
+		shutil.copy(str(png_path), filename)
+		return filename
+
+	def mock_process(raw_filename, processed_filename):
+		import os
+		import shutil
+		call_order.append(('process_image', raw_filename))
+		os.makedirs(os.path.dirname(processed_filename), exist_ok=True)
+		shutil.copy(raw_filename, processed_filename)
+		return processed_filename
+
+	def mock_ensure_dir(images_dir):
+		import os
+		os.makedirs(os.path.join(images_dir, 'raw'), exist_ok=True)
+		os.makedirs(os.path.join(images_dir, 'processed'), exist_ok=True)
+
+	# Mock images directory to isolate test from existing cache
+	images_dir = tmp_path / "images"
+	monkeypatch.setattr(image_pipeline, '_get_images_dir', lambda: str(images_dir))
 
 	monkeypatch.setattr('time.sleep', mock_sleep)
-	monkeypatch.setattr(libbrick.image_cache, 'get_cached_image', mock_get_cached)
+	monkeypatch.setattr(libbrick.image_cache, 'download_image', mock_download)
+	monkeypatch.setattr(libbrick.image_cache, 'process_image', mock_process)
+	monkeypatch.setattr(libbrick.image_cache, 'ensure_images_directory', mock_ensure_dir)
 
 	result = image_pipeline.fetch_and_classify('http://example.com/image.png', 'minifig', 'item1')
 
 	assert isinstance(result, image_pipeline.Trimmed)
-	# Verify call order: sleep should come before get_cached_image
-	assert len(call_order) == 2
+	# Verify call order: sleep should come before download_image
+	assert len(call_order) >= 2
 	assert call_order[0][0] == 'sleep'
-	assert call_order[1][0] == 'get_cached_image'
+	assert call_order[1][0] == 'download_image'
+
+
+def test_on_event_callback_fires_with_correct_events(tmp_path, monkeypatch):
+	"""on_event callback should fire with image_downloaded and image_processed events."""
+	png_bytes = _make_solid_png(width=100, height=100, color=(200, 200, 200))
+
+	png_path = tmp_path / "image.png"
+	png_path.write_bytes(png_bytes)
+
+	_mock_download_and_process(png_path, monkeypatch)
+
+	# Mock images directory to isolate test from existing cache
+	images_dir = tmp_path / "images"
+	monkeypatch.setattr(image_pipeline, '_get_images_dir', lambda: str(images_dir))
+
+	events = []
+
+	def event_callback(event: dict):
+		events.append(event)
+
+	mock_sleep = mock.Mock()
+	monkeypatch.setattr('time.sleep', mock_sleep)
+
+	result = image_pipeline.fetch_and_classify(
+		'http://example.com/image.png',
+		'minifig',
+		'sw1113',
+		on_event=event_callback
+	)
+
+	assert isinstance(result, image_pipeline.Trimmed)
+	# Should have fired both image_downloaded and image_processed events
+	assert len(events) == 2
+	assert events[0]['type'] == 'image_downloaded'
+	assert events[0]['id'] == 'sw1113'
+	assert events[0]['kind'] == 'minifig'
+	assert events[1]['type'] == 'image_processed'
+	assert events[1]['id'] == 'sw1113'
+	assert events[1]['kind'] == 'minifig'
+
+
+def test_on_event_none_does_not_fire_callback(tmp_path, monkeypatch):
+	"""When on_event=None, no events should be fired."""
+	png_bytes = _make_solid_png(width=100, height=100, color=(200, 200, 200))
+
+	png_path = tmp_path / "image.png"
+	png_path.write_bytes(png_bytes)
+
+	_mock_download_and_process(png_path, monkeypatch)
+
+	# Mock images directory to isolate test from existing cache
+	images_dir = tmp_path / "images"
+	monkeypatch.setattr(image_pipeline, '_get_images_dir', lambda: str(images_dir))
+
+	mock_callback = mock.Mock()
+
+	mock_sleep = mock.Mock()
+	monkeypatch.setattr('time.sleep', mock_sleep)
+
+	result = image_pipeline.fetch_and_classify(
+		'http://example.com/image.png',
+		'minifig',
+		'sw1113',
+		on_event=None
+	)
+
+	assert isinstance(result, image_pipeline.Trimmed)
+	# Callback should never be called
+	mock_callback.assert_not_called()

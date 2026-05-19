@@ -1,4 +1,6 @@
+node_modules/
 # Ignore JPEG files that were downloaded
+frontend/node_modules/
 external/
 _[a-z]*.?*
 output/
@@ -21,6 +23,10 @@ rebrick_api_key.yml
 *.json
 # Ignore macos finder cache
 .DS_Store
+# Playwright test results and artifacts
+tests/playwright/test-results/
+tests/playwright/_artifacts/
+_artifacts/
 # Ignore CSV files used for input and output
 *.csv
 # Ignore TeX files used mostly for output

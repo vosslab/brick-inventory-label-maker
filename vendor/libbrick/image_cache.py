@@ -20,6 +20,14 @@ LABEL_IMAGE_WIDTH_IN = 1.45
 LABEL_IMAGE_HEIGHT_IN = 1.95
 LABEL_MAX_CROP_FRACTION = 0.10
 
+HEADERS = {
+	'User-Agent': (
+		'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:150.0) '
+		'Gecko/20100101 Firefox/150.0'
+	),
+	'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
+}
+
 #============================
 #============================
 def ensure_images_directory(base_dir: str) -> None:
@@ -66,7 +74,7 @@ def download_image(image_url: str, filename: str) -> str:
 		return filename
 	image_url = normalize_image_url(image_url)
 	time.sleep(random.random())
-	r = requests.get(image_url, stream=True, timeout=15)
+	r = requests.get(image_url, stream=True, timeout=15, headers=HEADERS)
 	if r.status_code == 200:
 		r.raw.decode_content = True
 		with open(filename, 'wb') as f:
@@ -74,7 +82,7 @@ def download_image(image_url: str, filename: str) -> str:
 		print(f'.. image successfully downloaded: {filename}')
 	else:
 		print(f"!! image couldn't be retrieved: {image_url}")
-		raise FileNotFoundError
+		raise FileNotFoundError(f"image fetch HTTP {r.status_code} for {image_url}")
 	return filename
 
 #============================
