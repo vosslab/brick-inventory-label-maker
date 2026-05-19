@@ -1,6 +1,10 @@
 # Brick inventory label maker
 
-Organize your LEGO collection with printed bin labels. This web app helps collectors print photo labels for plastic storage bins holding minifigures or LEGO sets. Type in LEGO identifiers (like `10240-1` for a set or `sw1234` for a minifigure), and the app fetches official LEGO images and names from BrickLink (the largest online LEGO marketplace) and generates a print-ready PDF for standard Avery label sheets. Everything runs locally on your computer; no data leaves your machine.
+Print photo labels for your LEGO storage bins. Paste BrickLink set or minifigure IDs into a local web app; it fetches LEGO images and metadata, then builds a print-ready PDF laid out for Avery label sheets. Runs on your computer.
+
+## What it does
+
+Type LEGO identifiers (e.g. `10240-1` for a set, `sw1234` for a minifigure) into a browser. The app pulls official photos and names from BrickLink (the largest online LEGO marketplace) and lays them out on a printable PDF. For collectors organizing physical bins. Single-user, local-only, no cloud uploads.
 
 ## At a glance
 
