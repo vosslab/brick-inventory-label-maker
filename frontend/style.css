@@ -1,0 +1,239 @@
+* {
+	margin: 0;
+	padding: 0;
+	box-sizing: border-box;
+}
+
+body {
+	font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+	background-color: #f5f5f5;
+	color: #333;
+	line-height: 1.5;
+}
+
+header {
+	background-color: #2c3e50;
+	color: white;
+	padding: 1.5rem 2rem;
+	box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+header h1 {
+	font-size: 1.8rem;
+	margin-bottom: 0.5rem;
+}
+
+main {
+	max-width: 1200px;
+	margin: 0 auto;
+	padding: 2rem;
+}
+
+.layout {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 2rem;
+}
+
+@media (max-width: 900px) {
+	.layout {
+		grid-template-columns: 1fr;
+	}
+}
+
+.panel {
+	background: white;
+	border-radius: 8px;
+	padding: 1.5rem;
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.left-panel {
+	display: flex;
+	flex-direction: column;
+	gap: 1.5rem;
+}
+
+.right-panel {
+	display: flex;
+	flex-direction: column;
+	gap: 1.5rem;
+}
+
+.section {
+	display: flex;
+	flex-direction: column;
+	gap: 0.75rem;
+}
+
+.subsection {
+	display: flex;
+	flex-direction: column;
+	gap: 0.75rem;
+	flex: 1;
+}
+
+h2 {
+	font-size: 1.1rem;
+	font-weight: 600;
+	color: #2c3e50;
+}
+
+.radio-group,
+.checkbox-group {
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+}
+
+.radio-group label,
+.checkbox-group label {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	cursor: pointer;
+	user-select: none;
+}
+
+input[type='radio'],
+input[type='checkbox'] {
+	cursor: pointer;
+	width: 18px;
+	height: 18px;
+}
+
+textarea {
+	font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+	font-size: 0.95rem;
+	padding: 0.75rem;
+	border: 1px solid #ddd;
+	border-radius: 4px;
+	resize: vertical;
+	min-height: 150px;
+	line-height: 1.4;
+}
+
+textarea:focus {
+	outline: none;
+	border-color: #3498db;
+	box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
+}
+
+button {
+	padding: 0.75rem 1.5rem;
+	background-color: #3498db;
+	color: white;
+	border: none;
+	border-radius: 4px;
+	font-size: 1rem;
+	font-weight: 600;
+	cursor: pointer;
+	transition: background-color 0.2s;
+}
+
+button:hover:not(:disabled) {
+	background-color: #2980b9;
+}
+
+button:disabled {
+	background-color: #bdc3c7;
+	cursor: not-allowed;
+	opacity: 0.6;
+}
+
+.log {
+	background-color: #fafafa;
+	border: 1px solid #eee;
+	border-radius: 4px;
+	padding: 1rem;
+	font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+	font-size: 0.85rem;
+	max-height: 400px;
+	overflow-y: auto;
+	min-height: 100px;
+	line-height: 1.4;
+}
+
+.log-entry {
+	margin-bottom: 0.5rem;
+	word-break: break-word;
+}
+
+.log-entry.info {
+	color: #555;
+}
+
+.log-entry.warn {
+	color: #e67e22;
+	font-weight: 500;
+}
+
+.warnings {
+	background-color: #fafafa;
+	border: 1px solid #eee;
+	border-radius: 4px;
+	padding: 1rem;
+	max-height: 400px;
+	overflow-y: auto;
+	min-height: 100px;
+}
+
+.warning-item {
+	background-color: white;
+	border-left: 4px solid #e67e22;
+	padding: 0.75rem;
+	margin-bottom: 0.75rem;
+	border-radius: 2px;
+	font-size: 0.9rem;
+}
+
+.warning-item-id {
+	font-weight: 600;
+	color: #2c3e50;
+	font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+}
+
+.warning-item-reason {
+	color: #666;
+	margin-top: 0.25rem;
+	font-size: 0.85rem;
+}
+
+.warning-item-dark {
+	border-left-color: #c0392b;
+}
+
+.warning-item-lstar {
+	color: #7f8c8d;
+	font-size: 0.8rem;
+	margin-top: 0.25rem;
+}
+
+#health-banner {
+	margin-top: 1rem;
+	padding: 0.75rem 1rem;
+	border-radius: 4px;
+	font-size: 0.95rem;
+	display: none;
+}
+
+#health-banner.visible {
+	display: block;
+}
+
+#health-banner.warning {
+	background-color: #f39c12;
+	color: white;
+}
+
+#health-banner.info {
+	background-color: #3498db;
+	color: white;
+}
+
+.empty-state {
+	text-align: center;
+	color: #95a5a6;
+	padding: 2rem 1rem;
+	font-style: italic;
+}

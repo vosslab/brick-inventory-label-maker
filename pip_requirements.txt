@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+pydantic
+reportlab
+pillow
+pyyaml
+requests-oauthlib
+numpy

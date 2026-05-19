@@ -1,0 +1,8 @@
+# BrickLink API OAuth1 credentials for brick-collection.
+# Copy this file to bricklink_api_private.yml and fill in your actual credentials.
+# Do not commit the filled-in version to git.
+
+consumer_key: "YOUR_CONSUMER_KEY_HERE"
+consumer_secret: "YOUR_CONSUMER_SECRET_HERE"
+token: "YOUR_TOKEN_HERE"
+token_secret: "YOUR_TOKEN_SECRET_HERE"
