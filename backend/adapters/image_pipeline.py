@@ -243,14 +243,14 @@ def fetch_and_classify(
 	if on_event:
 		on_event({"type": "image_processed", "id": item_id, "kind": kind})
 
-	# Load and process the cached image
+	# Load and process the cached image. PIL.Image.open is lazy; the
+	# context manager closes the file handle once the bitmap is in RAM.
 	try:
-		image = PIL.Image.open(processed_filename)
+		with PIL.Image.open(processed_filename) as image:
+			trimmed = _trim_white_edges(image)
 	except Exception:
 		return MissingImage(reason="decode failed")
 
-	# Trim white edges
-	trimmed = _trim_white_edges(image)
 	if trimmed is None:
 		return MissingImage(reason="blank image")
 

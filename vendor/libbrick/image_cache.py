@@ -1,5 +1,6 @@
 # Standard Library
 import os
+import fcntl
 import time
 import random
 import shutil
@@ -165,6 +166,12 @@ def _crop_to_aspect(image: PIL.Image.Image, target_ratio: float,
 def process_image(raw_filename: str, processed_filename: str, model: str = None) -> str:
 	"""
 	Remove background and trim the image for label use.
+
+	A shared file lock at <cache_root>/.rembg.lock serializes rembg subprocess
+	invocations across all callers (CLI label-makers, downstream webservers).
+	The isnet-general-use model peaks ~1.5GB RAM per call; parallel jobs OOM
+	small hosts. subprocess timeout=600 bounds a hung rembg so the lock cannot
+	be pinned indefinitely.
 	"""
 	if os.path.exists(processed_filename):
 		return processed_filename
@@ -175,7 +182,12 @@ def process_image(raw_filename: str, processed_filename: str, model: str = None)
 	if model:
 		command += ['-m', model]
 	command += [raw_filename, processed_filename]
-	subprocess.run(command, check=True)
+	# derive shared cache root from convention <cache>/processed/<file>
+	cache_root = os.path.dirname(os.path.dirname(processed_filename))
+	lock_path = os.path.join(cache_root, '.rembg.lock')
+	with open(lock_path, 'w') as lock_f:
+		fcntl.flock(lock_f, fcntl.LOCK_EX)
+		subprocess.run(command, check=True, timeout=600)
 	with PIL.Image.open(processed_filename) as image:
 		trimmed = _trim_image(image)
 		target_ratio = LABEL_IMAGE_WIDTH_IN / float(LABEL_IMAGE_HEIGHT_IN)

@@ -60,6 +60,35 @@
 - `compose.yml` host port parameterized as `${LABELS_PORT:-8080}`; `run_podman.sh` exports `LABELS_PORT` before `podman compose up`. Container-internal port stays 8080. Manual `podman compose up` without the wrapper still works (defaults to 8080).
 - `run_local.sh` drops `set -u` because `source_me.sh` sources `~/.bashrc`, which on macOS Homebrew can reference an unset `PS1` via bash_completion. `-e -o pipefail` retained.
 - `build_frontend.sh` drops duplicate "frontend build OK" echo (already printed by `esbuild.config.mjs`).
+- `backend/routes/labels.py::_LABELS_JOB_LOCK` is now a non-blocking UX guard: if a label job
+  is already in flight on this worker, a second request returns HTTP 409
+  `{"error":"job_in_progress"}` instead of blocking. True rembg-RAM serialization lives
+  in vendor's `libbrick/image_cache.py::process_image` via `fcntl.LOCK_EX` + `timeout=600`
+  (upstream commit `02fdfce85`). Both sync (`post_minifig_labels`, `post_set_labels`) and
+  streaming (`_stream_minifig`, `_stream_set`) paths share the guard; streaming generators
+  release the lock in `finally`.
+- Vendor re-synced from upstream brick-collection commit
+  `02fdfce85fff357b419f864bb8fd2458c2117aea`. Upstream `libbrick/image_cache.py::process_image`
+  now wraps the rembg subprocess in `fcntl.LOCK_EX` on `<cache_root>/.rembg.lock` plus
+  `subprocess.run(..., timeout=600)`. Coordinates CLI label-makers, webserver, and any future
+  tool sharing the cache directory. POSIX only.
+- Close PIL file handle in `backend/adapters/image_pipeline.py::fetch_and_classify()`: wrap
+  `PIL.Image.open(processed_filename)` in a context manager so the underlying file handle
+  closes immediately after reading. Function internally materializes a copy via
+  `convert('RGBA')` so the returned image survives the context exit; no data loss.
+- `sync_vendor.sh` now `git pull --ff-only`s upstream `main` before copying, and
+  `vendor/VENDOR_SOURCE.md` reads "Last synced from upstream commit" rather than pinning a
+  source SHA. brick-collection is maintenance-mode under the sole maintainer; vendor tracks
+  latest HEAD so bug fixes flow through. `SKIP_PULL=1` skips the pull for offline syncs.
+
+### Decisions and Failures
+
+- Upstream rembg subprocess hardening landed: vendor synced to commit `02fdfce85`, which adds
+  `fcntl.LOCK_EX` + `subprocess.run(..., timeout=600)` (bumped from initial 180s draft since
+  rembg can legitimately take several minutes on first model download). The blocker risk
+  identified by the post-implementation audit (hung rembg pinning the in-process lock) is
+  resolved.
+- Drop earlier `_REMBG_LOCK` in `backend/adapters/image_pipeline.py`. Reason: the route-level `_LABELS_JOB_LOCK` in `backend/routes/labels.py` already serializes every label-generation job, so the inner pipeline-layer lock could never be contended. Removed per "fix the design, not the symptom" - the route lock is the single source of serialization. PIL context-manager fix unchanged.
 
 ### Developer Tests and Notes
 

@@ -1,13 +1,16 @@
 # Vendor Source
 
 This directory contains byte-identical copies of files from the upstream
-brick-collection repository.
+brick-collection repository. Vendor tracks upstream `main` HEAD rather than
+pinning a specific commit: brick-collection is in maintenance mode under the
+sole maintainer, and only receives bug fixes. Re-run `bash sync_vendor.sh`
+to refresh; the script `git pull --ff-only`s upstream first.
 
 ## Source
 
 Repository: https://github.com/neilvoss/brick-collection
 
-Source commit: `f33bddee899fb26505729423256884ec9f6a7d90`
+Last synced from upstream commit: `02fdfce85fff357b419f864bb8fd2458c2117aea`
 
 ## Vendored Files
 
@@ -31,9 +34,13 @@ To refresh vendor files from brick-collection, run:
 bash sync_vendor.sh
 ```
 
-Or with a custom source directory:
+Pulls latest upstream `main` then copies the files above. To vendor whatever
+is currently checked out without pulling (offline / pinned-checkout), set
+`SKIP_PULL=1`. To point at an alternate source directory, set
+`BRICK_COLLECTION_DIR`:
 
 ```bash
+SKIP_PULL=1 bash sync_vendor.sh
 BRICK_COLLECTION_DIR=/path/to/brick-collection bash sync_vendor.sh
 ```
 
